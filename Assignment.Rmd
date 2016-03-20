@@ -1,0 +1,118 @@
+---
+title: "Practical machine learning assignment"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+### **Classifying execution of barbell curls**
+
+#### **Synopsis**
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement - a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, the goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: http://groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset).
+
+#### **Model choice**
+The four (4) measuring devices (Razor IMU) used provide three-axes acceleration, gyroscope
+and magnetometer data at a joint sampling rate of 45 Hz. Since the execution of a single 
+barbell curl takes a couple of seconds it will not be likely that a single execution data point can be used against a model build from each of the data points in the training data. It is highly unlikely that a single measurement will occur (within certain eror bounds) in exactly one of the five different fashions used for the classification: there will be overlap in the different positions and accelerations. It is much more likely that an *average* of the measured values over a certain time period will be good values to build a model from.
+
+I have therefore used all of the measurements within each time window (num_window in the dataset) and averaged them across that time window. Since we have a rather large number of features (96) and since variance is expected to be quite high (all five different ways of curl execution are 'near' to each other from a movement point of view) I have used a **random forest** method to build the classification model.
+
+
+##### **Reading in the data**
+```{r}
+       if (require("caret",quietly=TRUE, warn.conflicts=FALSE) == FALSE)
+        {
+          install.packages("caret", quiet=TRUE, verbose=FALSE)
+          library("caret", quietly = TRUE, warn.conflicts=FALSE)
+        }
+  
+        if (require("randomForest",quietly=TRUE, warn.conflicts=FALSE) == FALSE)
+        {
+          install.packages("randomForest", quiet=TRUE, verbose=FALSE)
+          library("randomForest", quietly = TRUE, warn.conflicts=FALSE)
+        }
+  
+        if (require("e1071",quietly=TRUE, warn.conflicts=FALSE) == FALSE)
+        {
+          install.packages("e1071", quiet=TRUE, verbose=FALSE)
+          library("e1071", quietly = TRUE, warn.conflicts=FALSE)
+        }
+
+        setwd("G:/Practical machine learning")
+        
+```
+```{r cache=TRUE}
+
+        Data <- read.csv("pml-training.csv", header=TRUE, stringsAsFactors = FALSE)
+        Test <- read.csv("pml-testing.csv" , header=TRUE, stringsAsFactors = FALSE)
+```
+
+
+##### **Processing the data**
+The random forest algorithm itself splite the data in a training and test part. The test part is used by the algorithm to provide the user with an expected OOB error (out of sample error). For the sake of this exercise and due to my paranoid nature I have also made my own split where full windows (num-window) are being used as the splitting boundary. My training data set is 75% of the full data set. 
+```{r}
+N <- quote(cbind(
+                roll_belt,pitch_belt, yaw_belt, total_accel_belt, 
+                gyros_belt_x, gyros_belt_y, gyros_belt_z, 
+                accel_belt_x, accel_belt_y, accel_belt_z,
+                magnet_belt_x, magnet_belt_y, magnet_belt_z, 
+                roll_arm,pitch_arm, yaw_arm, total_accel_arm, 
+                gyros_arm_x, gyros_arm_y, gyros_arm_z, 
+                accel_arm_x, accel_arm_y, accel_arm_z,
+                magnet_arm_x, magnet_arm_y, magnet_arm_z, 
+                roll_dumbbell,pitch_dumbbell, yaw_dumbbell, total_accel_dumbbell, 
+                gyros_dumbbell_x, gyros_dumbbell_y, gyros_dumbbell_z, 
+                accel_dumbbell_x, accel_dumbbell_y, accel_dumbbell_z,
+                magnet_dumbbell_x, magnet_dumbbell_y, magnet_dumbbell_z,
+                roll_forearm,pitch_forearm, yaw_forearm, total_accel_forearm, 
+                gyros_forearm_x, gyros_forearm_y, gyros_forearm_z, 
+                accel_forearm_x, accel_forearm_y, accel_forearm_z,
+                magnet_forearm_x, magnet_forearm_y, magnet_forearm_z
+                ))
+        
+        S <- c( "num_window",
+                "roll_belt","pitch_belt", "yaw_belt", "total_accel_belt", 
+                "gyros_belt_x", "gyros_belt_y", "gyros_belt_z", 
+                "accel_belt_x", "accel_belt_y", "accel_belt_z",
+                "magnet_belt_x", "magnet_belt_y", "magnet_belt_z", 
+                "roll_arm","pitch_arm", "yaw_arm", "total_accel_arm", 
+                "gyros_arm_x", "gyros_arm_y", "gyros_arm_z", 
+                "accel_arm_x", "accel_arm_y", "accel_arm_z",
+                "magnet_arm_x", "magnet_arm_y", "magnet_arm_z", 
+                "roll_dumbbell","pitch_dumbbell", "yaw_dumbbell", "total_accel_dumbbell", 
+                "gyros_dumbbell_x", "gyros_dumbbell_y", "gyros_dumbbell_z", 
+                "accel_dumbbell_x", "accel_dumbbell_y", "accel_dumbbell_z",
+                "magnet_dumbbell_x", "magnet_dumbbell_y", "magnet_dumbbell_z",
+                "roll_forearm","pitch_forearm", "yaw_forearm", "total_accel_forearm", 
+                "gyros_forearm_x", "gyros_forearm_y", "gyros_forearm_z", 
+                "accel_forearm_x", "accel_forearm_y", "accel_forearm_z",
+                "magnet_forearm_x", "magnet_forearm_y", "magnet_forearm_z",
+                "classe")
+        
+        Windows <- unique(Data[,"num_window"])
+        subData <- subset(Data, select = S)
+        R <- c("num_window", "classe")
+        subTest <- subset(Test, select = S[! S %in% R])
+        
+        C <- unique(subData[, c("num_window", "classe")])
+        C <- C[order(C[,"num_window"]),]
+        
+        A <- aggregate(cbind(eval(N)) ~ num_window, Data, mean)
+        A <- merge(A, C, by = "num_window")
+        
+        inTrain <- createDataPartition(y=A$num_window, p=0.75, list=FALSE)
+        Tr <- A[inTrain,]
+        Te <- A[-inTrain,]
+
+        modFit <- train(classe ~ .- num_window, data=Tr, method="rf", prox=TRUE)
+        TestPred <- predict(modFit, Te)
+```
+
+##### **Results**
+The random forest algorithm chooses a method with an accuracy (based on its internal split of the data set) of 0.84 (expected out of sample error 0.16).
+````{r}
+    print(modFit)
+```
+Using the model to Classify my test data results in an accuracy of `r sum(TestPred == Te$classe)/length(Te$classe)` which is in line with the OOB error as estimated by the algorithm itself.
+
